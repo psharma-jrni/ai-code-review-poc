@@ -1,0 +1,113 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Get diff
+        id: diff
+        run: |
+          DIFF=$(git diff origin/${{ github.event.pull_request.base.ref }}...HEAD 2>/dev/null | head -c 30000)
+          echo "$DIFF" > /tmp/pr-diff.txt
+          FILE_COUNT=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD | wc -l)
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Run AI review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          DIFF=$(cat /tmp/pr-diff.txt)
+
+          claude -p "
+          You are an AI code reviewer. Use the code-review skill from .claude/skills/code-review/SKILL.md.
+
+          Review the following pull request diff. Check the actual source files in the repo for additional context if needed.
+
+          PR Title: ${{ github.event.pull_request.title }}
+          PR Author: ${{ github.event.pull_request.user.login }}
+          Files changed: ${{ steps.diff.outputs.file_count }}
+
+          <diff>
+          ${DIFF}
+          </diff>
+
+          Provide your review as markdown with:
+          1. A summary (2-3 sentences)
+          2. Findings grouped by severity (critical, warning, suggestion)
+          3. A final verdict: APPROVE, COMMENT, or REQUEST_CHANGES
+
+          If no issues found, say so clearly and approve.
+          " --allowedTools Read,Grep,Glob \
+            --dangerously-skip-permissions \
+            --output-format text > /tmp/review-output.txt 2>&1 || true
+
+          echo "review_done=true" >> $GITHUB_OUTPUT
+
+      - name: Post review comment
+        if: steps.review.outputs.review_done == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let review = '';
+            try {
+              review = fs.readFileSync('/tmp/review-output.txt', 'utf8');
+            } catch (e) {
+              review = 'Review failed to generate. Check Actions logs.';
+            }
+
+            // Truncate if too long for a GitHub comment
+            if (review.length > 60000) {
+              review = review.substring(0, 60000) + '\n\n... (truncated)';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by Claude Code + .claude/skills/code-review*`
+            });
+mkdir -p src
+
+cat > src/auth.js << 'EOF'
+const API_KEY = "sk-1234567890abcdef";
+
+function authenticateUser(username, password) {
+  const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;
+  return db.execute(query);
+}
+
+function getUserData(userId) {
+  const data = fetch(`/api/users/${userId}`, {
+    headers: { "Authorization": API_KEY }
+  });
+  return data.json();
+}
+
+function processPayment(amount, cardNumber) {
+  console.log(`Processing payment: ${cardNumber} for $${amount}`);
+  return paymentGateway.charge(amount, cardNumber);
+}
