@@ -12,6 +12,7 @@ jobs:
   review:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,18 +37,9 @@ jobs:
       - name: Build review prompt
         run: |
           cat > /tmp/review-prompt.txt << 'PROMPT'
-          You are an AI code reviewer. Read the code-review skill from .claude/skills/code-review/SKILL.md for review guidelines.
+          Use the code-review skill (.claude/skills/code-review/SKILL.md) to review this pull request. Follow the orchestrator instructions exactly: spawn the specialist sub-agents in parallel, then the aggregator, and output the aggregator's markdown verbatim as your final response. Do not add a preamble or postamble.
 
-          Review the following pull request diff. Check the actual source files in the repo for additional context if needed using Read, Grep, and Glob tools.
-
-          Provide your review as markdown with:
-          1. A summary (2-3 sentences)
-          2. Findings grouped by severity (critical, warning, suggestion)
-          3. A final verdict: APPROVE, COMMENT, or REQUEST_CHANGES
-
-          If no issues found, say so clearly and approve.
-
-          Here is the diff:
+          Here is the PR diff:
           PROMPT
 
           echo "" >> /tmp/review-prompt.txt
@@ -59,7 +51,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           claude -p "$(cat /tmp/review-prompt.txt)" \
-            --allowedTools Read,Grep,Glob \
+            --allowedTools Read,Grep,Glob,Agent \
             --dangerously-skip-permissions \
             --output-format text > /tmp/review-output.txt 2>&1 || true
           echo "review_done=true" >> $GITHUB_OUTPUT
